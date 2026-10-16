@@ -251,7 +251,7 @@ ESCTAB:
 
 ESCTABLEN EQU   $-ESCTAB
         IF      NOT IBM
-HEADER  DB      13,10,"MS-DOS version 1.25"
+HEADER  DB      13,10,"MS-DOS 1.25 Lite"
         IF      HIGHMEM
         DB      "H"
         ENDIF
@@ -260,7 +260,7 @@ HEADER  DB      13,10,"MS-DOS version 1.25"
         ENDIF
 
         DB      13,10
-        DB      "Copyright 1981,82 Microsoft, Inc.",13,10,"$"
+        DB      "Copyright 2019,26 IWT",13,10,"$"
         ENDIF
 
 QUIT:
