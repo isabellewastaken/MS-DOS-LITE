@@ -889,12 +889,6 @@ EXTERNAL:
         MOV     DX,OFFSET TRANGROUP:IDLEN
         MOV     AH,OPEN
         INT     33              ;Check if command to be executed
-        MOV     [FILTYP],AL     ;0 for COM files, -1 for EXE files
-        OR      AL,AL
-        JZ      EXECUTE
-        MOV     WORD PTR[COM],5800H+"E" ;"EX"
-        MOV     BYTE PTR[COM+2],"E"
-        INT     33              ;Check for EXE file
         OR      AL,AL
         JZ      EXECUTE
         MOV     WORD PTR[COM],4100H+"B" ;"BA"
@@ -963,9 +957,6 @@ EXECUTE:
         MOV     BX,DX
         MOV     AH,SETBASE
         INT     21H
-        TEST    [FILTYP],-1             ;Check if file is COM or EXE
-        JZ      COMLOAD
-        JMP     EXELOAD
 COMLOAD:PUSH    DS
         MOV     DS,DX
         MOV     DX,100H
@@ -2024,118 +2015,6 @@ OUT:
         POP     AX
         XCHG    AX,DX
         RET
-
-EXELOAD:
-        MOV     AX,CS
-        ADD     AX,LOADSEG
-        MOV     [EXEEND],AX     ;Store in EXEEND
-        MOV     DX,OFFSET TRANGROUP:RUNVAR      ;Read header in here
-        MOV     AH,SETDMA
-        INT     33
-        MOV     CX,RUNVARSIZ    ;Amount of header info we need
-        MOV     DX,OFFSET TRANGROUP:EXEFCB
-        MOV     AH,RDBLK
-        INT     33              ;Read in header
-        OR      AL,AL
-        JNZ     BADEXE          ;Must not reach EOF
-        MOV     AX,[HEADSIZ]    ;Size of header in paragraphs
-;Convert header size to 512-byte pages by multiplying by 32 & rounding up
-        ADD     AX,31           ;Round up first
-        MOV     CL,5
-        SHR     AX,CL           ;Multiply by 32
-        MOV     [EXEFCB+RR],AX  ;Position in file of program
-        MOV     WORD PTR[EXEFCB+RECLEN],512 ;Set record size
-        ADD     BX,10H          ;First paragraph above parameter area
-        MOV     DX,[PAGES]      ;Total size of file in 512-byte pages
-        SUB     DX,AX           ;Size of program in pages
-        MOV     [PSIZE],DX
-        SHL     DX,CL           ;Convert pages back to paragraphs
-        MOV     AX,DX
-        ADD     DX,BX           ;Size + start = minimum memory (paragr.)
-        MOV     CX,[EXEEND]     ;Get memory size in paragraphs
-        CMP     DX,CX           ;Enough memory?
-        JA      SHRTERR
-        MOV     DX,[INITSP]
-        ADD     DX,15
-        SHR     DX,1
-        SHR     DX,1
-        SHR     DX,1
-        SHR     DX,1
-        ADD     DX,[INITSS]
-        ADD     DX,BX           ;Adjusted value of SP
-        CMP     DX,CX           ;Is it valid?
-        JA      SHRTERR
-        CMP     [LOADLOW],-1    ;Load low or high?
-        JZ      LOAD            ;If low, load at segment BX
-        SUB     CX,AX           ;Memory size - program size = load addr.
-        MOV     BX,CX
-LOAD:
-        MOV     BP,BX           ;Save load segment
-LOAD1:
-LOADSEG EQU     (LOAD1-ZERO)/16
-        PUSH    DS
-        MOV     DS,BX
-        XOR     DX,DX           ;Address 0 in segment
-        MOV     AH,SETDMA
-        INT     33              ;Set load address
-        POP     DS
-        MOV     CX,[PSIZE]      ;Number of records to read
-        MOV     DX,OFFSET TRANGROUP:EXEFCB
-        MOV     AH,RDBLK
-        INT     33              ;Read in up to 64K
-        SUB     [PSIZE],CX      ;Decrement count by amount read
-        JZ      HAVEXE          ;Did we get it all?
-        TEST    AL,1            ;Check return code if not
-        JNZ     BADEXE          ;Must be zero if more to come
-        ADD     BX,1000H-20H    ;Bump data segment 64K minus one record
-        JMP     SHORT LOAD1             ;Get next 64K block
-
-BADEXE:
-        MOV     DX,OFFSET TRANGROUP:EXEBAD
-        JMP     ERROR
-
-SHRTERR:
-        MOV     DX,OFFSET TRANGROUP:TOOBIG
-        JMP     ERROR
-
-HAVEXE:
-        MOV     AX,[RELTAB]     ;Get position of table
-        MOV     [EXEFCB+RR],AX  ;Set in random record field
-        MOV     WORD PTR[EXEFCB+RECLEN],1  ;Set one-byte record
-        MOV     DX,OFFSET TRANGROUP:RELPT       ;4-byte buffer for relocation address
-        MOV     AH,SETDMA
-        INT     33
-        CMP     [RELCNT],0
-        JZ      NOREL
-RELOC:
-        MOV     AH,RDBLK
-        MOV     DX,OFFSET TRANGROUP:EXEFCB
-        MOV     CX,4
-        INT     33              ;Read in one relocation pointer
-        OR      AL,AL           ;Check return code
-        JNZ     BADEXE
-        MOV     DI,[RELPT]      ;Get offset of relocation pointer
-        MOV     AX,[RELSEG]     ;Get segment
-        ADD     AX,BP           ;Bias segment with actual load segment
-        MOV     ES,AX
-        ADD     WORD PTR ES:[DI],BP             ;Relocate
-        DEC     [RELCNT]        ;Count off
-        JNZ     RELOC
-;Set up exit conditions
-NOREL:
-        MOV     AX,[INITSS]
-        ADD     AX,BP
-        CLI
-        MOV     SS,AX           ;Initialize SS
-        MOV     SP,[INITSP]
-        STI
-        ADD     [INITCS],BP
-        MOV     AX,[TPA]        ;Get pointer to parameter area
-        MOV     CX,[BYTCNT]     ;Size of TPA segment
-        MOV     ES,AX
-        MOV     DS,AX           ;Set segment registers to point to it
-        CALL    SETUP
-        JMP     DWORD PTR CS:[INITIP]   ;Long jump to program
 
 SETUP:
         AND     CL,0F0H         ;Adjust to even paragraph boundary
